@@ -13,23 +13,19 @@ void InstallHooks()
 void ApplyPatches()
 {
     uintptr_t grainFilterOffset = (uintptr_t)Memory::PatternScan(GameModule, "38 ?? A0 55 02 00");
-    uintptr_t pauseMenuViewportResizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "66 C7 80 ?? ?? ?? ?? 01 00");
+    uintptr_t pauseMenuViewportResizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "80 ?? B5 55 02 00 00");
 
     if (grainFilterOffset) {
         DWORD oldProtect;
         VirtualProtect((LPVOID)(grainFilterOffset), 6, PAGE_EXECUTE_READWRITE, &oldProtect);
-        *(uint32_t*)(grainFilterOffset + 0) = 0x90909090;
-        *(uint16_t*)(grainFilterOffset + 4) = 0x9090;
+        memset((void*)grainFilterOffset, 0x90, 6);
     }
 
     if (pauseMenuViewportResizeOffset) {
         DWORD oldProtect;
-        VirtualProtect((LPVOID)(pauseMenuViewportResizeOffset), 9, PAGE_EXECUTE_READWRITE, &oldProtect);
-        *(uint32_t*)(pauseMenuViewportResizeOffset + 0) = 0x90909090;
-        *(uint32_t*)(pauseMenuViewportResizeOffset + 4) = 0x90909090;
-        *(uint16_t*)(pauseMenuViewportResizeOffset + 8) = 0x90;
+        VirtualProtect((LPVOID)(pauseMenuViewportResizeOffset), 7, PAGE_EXECUTE_READWRITE, &oldProtect);
+        memset((void*)pauseMenuViewportResizeOffset, 0x90, 7);
     }
-
 }
 
 DWORD WINAPI MainThread(LPVOID lpParam)
