@@ -4,8 +4,8 @@ A plugin that aims to provide additional options and fix issues with Final Fanta
 Currently all this plugin does is remove the dithering filter.
 
 ## Installation
-Extract the zip to the root of your game directory.
-
+[Download](https://github.com/cipherxof/FFTacticsFix/releases) and extract the zip to the root of your game directory.
+ 
 <img width="905" height="352" alt="image" src="https://github.com/user-attachments/assets/6b576ce9-44c6-4a45-821a-d6674286312d" />
 
 ## Before
