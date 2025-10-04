@@ -48,7 +48,7 @@ char __fastcall PlayScript_Hook(unsigned int scriptId, __int64 a2)
 
         // mark the current map as complete, which procs achievments and
         // ends the map as if the script played
-        //FinishMap();
+        FinishMap();
         return 0;
     }
 
