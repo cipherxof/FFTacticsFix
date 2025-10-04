@@ -1,13 +1,68 @@
 #include <shlwapi.h>
 #include "Memory.h"
 #include "MinHook.h"
+#include <unordered_map>
 
 HMODULE GameModule = 0;
 uintptr_t GameBase = 0;
 
+uint8_t* menuState = 0;
+uint8_t* movieType = 0;
+uint8_t* movieCurrentId = 0;
+
+std::unordered_map<int, int> scriptVideoMap = {
+    {30, 9}, // Ovelia's Abduction
+    {300, 10}, // Blades of Grass
+    {450, 11}, // Partings
+    {690, 12}, // Reuinion with Delita
+    {860, 13} // Delita's Warning
+};
+
+typedef __int64 __fastcall InitMovie_t();
+InitMovie_t* InitMovie = 0;
+
+typedef char __fastcall PlayCutscene_t(unsigned int a1, __int64 a2);
+PlayCutscene_t* PlayScript;
+char __fastcall PlayScript_Hook(unsigned int sceneId, __int64 a2)
+{
+    if (*menuState == 0 && scriptVideoMap.find(sceneId) != scriptVideoMap.end()) {
+        *movieCurrentId = scriptVideoMap[sceneId];
+        *movieType = 0;
+        InitMovie();
+        return 1;
+    }
+
+    return PlayScript(sceneId, a2);
+}
+
 void InstallHooks()
 {
-    //MH_Initialize();
+    MH_Initialize();
+
+    uintptr_t playScriptOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 FB 11 75 ?? 48 89 F2 89 F9 E8 ?? ?? ?? ??");
+    uintptr_t menuStateOffset = (uintptr_t)Memory::PatternScan(GameModule, "F6 05 ?? ?? ?? ?? 08 0F 85 ?? ?? ?? ?? 8D 5D");
+    uintptr_t movieTypeOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 01 00 00 00 C7 05 ?? ?? ?? ?? 01 00 00 00 83 ?? 10 01");
+    uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
+    InitMovie = (InitMovie_t*)(Memory::PatternScan(GameModule, "48 83 EC 30 31 F6 89 74 24 40 E8 ?? ?? ?? ?? 39 35 ?? ?? ?? ?? 74 07") - 0xB);
+
+    if (playScriptOffset && menuStateOffset && movieTypeOffset && movieCurrentOffset && InitMovie) {
+        uint8_t* playScriptOffset_Call = (uint8_t*)(playScriptOffset + 10);
+        int32_t playScriptOffset_Relative = *reinterpret_cast<int32_t*>(playScriptOffset_Call + 1);
+        uintptr_t playScriptOffset_Absolute = (uintptr_t)(playScriptOffset_Call + 5 + playScriptOffset_Relative);
+
+        int32_t menuStateOffset_Relative = *reinterpret_cast<int32_t*>((uint8_t*)(menuStateOffset + 19));
+        menuState = (uint8_t*)(menuStateOffset + 23) + menuStateOffset_Relative;
+
+        uint8_t* movieType_Relative = (uint8_t*)(movieTypeOffset + 12);
+        int32_t movieType_Relative32 = *reinterpret_cast<int32_t*>(movieType_Relative);
+        movieType = (uint8_t*)(movieType_Relative + 8 + movieType_Relative32);
+
+        uint8_t* movieCurrent_Ptr = (uint8_t*)movieCurrentOffset + 3;
+        int32_t movieCurrentOffset_Relative = *reinterpret_cast<int32_t*>(movieCurrent_Ptr);
+        movieCurrentId = (uint8_t*)(movieCurrent_Ptr + 4) + movieCurrentOffset_Relative;
+
+        Memory::DetourFunction(playScriptOffset_Absolute, (LPVOID)PlayScript_Hook, (LPVOID*)&PlayScript);
+    }
 }
 
 void ApplyPatches()
