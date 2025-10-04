@@ -16,61 +16,77 @@ uint8_t* MenuState = 0;
 uint8_t* MovieType = 0;
 uint8_t* MovieCurrentId = 0;
 
-std::unordered_map<int, int> scriptVideoMap = 
+std::unordered_map<int, int> ScriptVideoMap = 
 {
     {30, 9}, // Ovelia's Abduction
     {300, 10}, // Blades of Grass
     {450, 11}, // Partings
     {690, 12}, // Reuinion with Delita
-    {860, 13} // Delita's Warning
+    {860, 13}, // Delita's Warning
+    {1275, 14}, // Ovelia and Delita
+    {1725, 15}, // Delita's Will
 };
 
 typedef __int64 __fastcall InitMovie_t();
 InitMovie_t* InitMovie = 0;
 
+typedef void FinishMap_t();
+FinishMap_t* FinishMap = 0;
+
 typedef char __fastcall PlayCutscene_t(unsigned int a1, __int64 a2);
 PlayCutscene_t* PlayScript;
-char __fastcall PlayScript_Hook(unsigned int sceneId, __int64 a2)
+
+char __fastcall PlayScript_Hook(unsigned int scriptId, __int64 a2)
 {
-    if (PreferMovies && *MenuState == 0 && scriptVideoMap.find(sceneId) != scriptVideoMap.end()) 
+    if (PreferMovies && *MenuState == 0 && ScriptVideoMap.find(scriptId) != ScriptVideoMap.end())
     {
-        *MovieCurrentId = scriptVideoMap[sceneId];
-        *MovieType = 0;
+        // set the current movie to the appropriate one and start
+        // the movie player
+        *MovieCurrentId = ScriptVideoMap[scriptId];
+        *MovieType = 0; // otherwise black screen after movie
         InitMovie();
-        return 1;
+
+        // mark the current map as complete, which procs achievments and
+        // ends the map as if the script played
+        //FinishMap();
+        return 0;
     }
 
-    return PlayScript(sceneId, a2);
+    return PlayScript(scriptId, a2);
 }
 
 void InstallHooks()
 {
     MH_Initialize();
 
-    uintptr_t playScriptOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 FB 11 75 ?? 48 89 F2 89 F9 E8 ?? ?? ?? ??");
-    uintptr_t menuStateOffset = (uintptr_t)Memory::PatternScan(GameModule, "F6 05 ?? ?? ?? ?? 08 0F 85 ?? ?? ?? ?? 8D 5D");
-    uintptr_t movieTypeOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 01 00 00 00 C7 05 ?? ?? ?? ?? 01 00 00 00 83 ?? 10 01");
-    uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
-    InitMovie = (InitMovie_t*)(Memory::PatternScan(GameModule, "48 83 EC 30 31 F6 89 74 24 40 E8 ?? ?? ?? ?? 39 35 ?? ?? ?? ?? 74 07") - 0xB);
-
-    if (playScriptOffset && menuStateOffset && movieTypeOffset && movieCurrentOffset && InitMovie) 
+    if (PreferMovies)
     {
-        uint8_t* playScriptOffset_Call = (uint8_t*)(playScriptOffset + 10);
-        int32_t playScriptOffset_Relative = *reinterpret_cast<int32_t*>(playScriptOffset_Call + 1);
-        uintptr_t playScriptOffset_Absolute = (uintptr_t)(playScriptOffset_Call + 5 + playScriptOffset_Relative);
+        uintptr_t playScriptOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 FB 11 75 ?? 48 89 F2 89 F9 E8 ?? ?? ?? ??");
+        uintptr_t menuStateOffset = (uintptr_t)Memory::PatternScan(GameModule, "F6 05 ?? ?? ?? ?? 08 0F 85 ?? ?? ?? ?? 8D 5D");
+        uintptr_t movieTypeOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 01 00 00 00 C7 05 ?? ?? ?? ?? 01 00 00 00 83 ?? 10 01");
+        uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
+        InitMovie = (InitMovie_t*)(Memory::PatternScan(GameModule, "48 83 EC 30 31 F6 89 74 24 40 E8 ?? ?? ?? ?? 39 35 ?? ?? ?? ?? 74 07") - 0xB);
+        FinishMap = (FinishMap_t*)(Memory::PatternScan(GameModule, "C7 44 24 ?? 76 01 F0 00") - 0x35);
 
-        int32_t menuStateOffset_Relative = *reinterpret_cast<int32_t*>((uint8_t*)(menuStateOffset + 19));
-        MenuState = (uint8_t*)(menuStateOffset + 23) + menuStateOffset_Relative;
+        if (playScriptOffset && menuStateOffset && movieTypeOffset && movieCurrentOffset && InitMovie && FinishMap)
+        {
+            uint8_t* playScriptOffset_Call = (uint8_t*)(playScriptOffset + 10);
+            int32_t playScriptOffset_Relative = *reinterpret_cast<int32_t*>(playScriptOffset_Call + 1);
+            uintptr_t playScriptOffset_Absolute = (uintptr_t)(playScriptOffset_Call + 5 + playScriptOffset_Relative);
 
-        uint8_t* movieType_Relative = (uint8_t*)(movieTypeOffset + 12);
-        int32_t movieType_Relative32 = *reinterpret_cast<int32_t*>(movieType_Relative);
-        MovieType = (uint8_t*)(movieType_Relative + 8 + movieType_Relative32);
+            int32_t menuStateOffset_Relative = *reinterpret_cast<int32_t*>((uint8_t*)(menuStateOffset + 19));
+            MenuState = (uint8_t*)(menuStateOffset + 23) + menuStateOffset_Relative;
 
-        uint8_t* movieCurrent_Ptr = (uint8_t*)movieCurrentOffset + 3;
-        int32_t movieCurrentOffset_Relative = *reinterpret_cast<int32_t*>(movieCurrent_Ptr);
-        MovieCurrentId = (uint8_t*)(movieCurrent_Ptr + 4) + movieCurrentOffset_Relative;
+            uint8_t* movieType_Relative = (uint8_t*)(movieTypeOffset + 12);
+            int32_t movieType_Relative32 = *reinterpret_cast<int32_t*>(movieType_Relative);
+            MovieType = (uint8_t*)(movieType_Relative + 8 + movieType_Relative32);
 
-        Memory::DetourFunction(playScriptOffset_Absolute, (LPVOID)PlayScript_Hook, (LPVOID*)&PlayScript);
+            uint8_t* movieCurrent_Ptr = (uint8_t*)movieCurrentOffset + 3;
+            int32_t movieCurrentOffset_Relative = *reinterpret_cast<int32_t*>(movieCurrent_Ptr);
+            MovieCurrentId = (uint8_t*)(movieCurrent_Ptr + 4) + movieCurrentOffset_Relative;
+
+            Memory::DetourFunction(playScriptOffset_Absolute, (LPVOID)PlayScript_Hook, (LPVOID*)&PlayScript);
+        }
     }
 }
 
@@ -115,12 +131,12 @@ DWORD WINAPI MainThread(LPVOID lpParam)
     if (!std::filesystem::exists("scripts/FFTacticsFix.ini"))
         return true;
 
-    mINI::INIFile ini("scripts/FFTacticsFix.ini");
+    mINI::INIFile ini("scripts/FFTacticsFix.ini"); // todo: robust ini loading and logging
     ini.read(ConfigValues);
     PreferMovies = std::stoi(ConfigValues["Settings"]["PreferMovies"]) > 0;
     DisableFilter = std::stoi(ConfigValues["Settings"]["DisableFilter"]) > 0;
 
-    Sleep(5000);
+    Sleep(5000); // todo: proper ASI init
 
     InstallHooks();
     ApplyPatches();
