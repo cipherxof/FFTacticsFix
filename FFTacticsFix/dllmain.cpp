@@ -1,9 +1,9 @@
 #include <shlwapi.h>
 #include <unordered_map>
+#include <filesystem>
 #include "Memory.h"
 #include "MinHook.h"
 #include "ini.h"
-#include <filesystem>
 
 HMODULE GameModule = 0;
 uintptr_t GameBase = 0;
@@ -15,44 +15,37 @@ bool DisableFilter = false;
 uint8_t* MenuState = 0;
 uint8_t* MovieType = 0;
 uint8_t* MovieCurrentId = 0;
+uint32_t* CurrentScript = 0;
+uint32_t* SkipScriptFlag = 0;
 
 std::unordered_map<int, int> ScriptVideoMap = 
 {
-    {30, 9}, // Ovelia's Abduction
-    {300, 10}, // Blades of Grass
-    {450, 11}, // Partings
-    {690, 12}, // Reuinion with Delita
-    {860, 13}, // Delita's Warning
-    {1275, 14}, // Ovelia and Delita
-    {1725, 15}, // Delita's Will
+    {6, 9}, // Ovelia's Abduction
+    {60, 10}, // Blades of Grass
+    {90, 11}, // Partings
+    {138, 12}, // Reuinion with Delita
+    {172, 13}, // Delita's Warning
+    {255, 14}, // Ovelia and Delita
+    {345, 15}, // Delita's Will
 };
 
 typedef __int64 __fastcall InitMovie_t();
 InitMovie_t* InitMovie = 0;
 
-typedef void FinishMap_t();
-FinishMap_t* FinishMap = 0;
-
-typedef char __fastcall PlayCutscene_t(unsigned int a1, __int64 a2);
-PlayCutscene_t* PlayScript;
-
-char __fastcall PlayScript_Hook(unsigned int scriptId, __int64 a2)
+typedef __int64 __fastcall InitScriptVM_t();
+InitScriptVM_t* InitScriptVM;
+__int64 __fastcall InitScriptVM_Hook()
 {
+    auto result = InitScriptVM();
+    int scriptId = *CurrentScript;
     if (PreferMovies && *MenuState == 0 && ScriptVideoMap.find(scriptId) != ScriptVideoMap.end())
     {
-        // set the current movie to the appropriate one and start
-        // the movie player
+        *SkipScriptFlag = 1;
         *MovieCurrentId = ScriptVideoMap[scriptId];
         *MovieType = 0; // otherwise black screen after movie
         InitMovie();
-
-        // mark the current map as complete, which procs achievments and
-        // ends the map as if the script played
-        FinishMap();
-        return 0;
     }
-
-    return PlayScript(scriptId, a2);
+    return result;
 }
 
 void InstallHooks()
@@ -61,19 +54,16 @@ void InstallHooks()
 
     if (PreferMovies)
     {
-        uintptr_t playScriptOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 FB 11 75 ?? 48 89 F2 89 F9 E8 ?? ?? ?? ??");
+        uintptr_t initScriptVMOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 83 EC 20 E8");
         uintptr_t menuStateOffset = (uintptr_t)Memory::PatternScan(GameModule, "F6 05 ?? ?? ?? ?? 08 0F 85 ?? ?? ?? ?? 8D 5D");
         uintptr_t movieTypeOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 01 00 00 00 C7 05 ?? ?? ?? ?? 01 00 00 00 83 ?? 10 01");
         uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
+        uintptr_t currentScriptOffset = (uintptr_t)Memory::PatternScan(GameModule, "81 3D ?? ?? ?? ?? 76 01 00 00");
+        uintptr_t scriptSkipFlag = (uintptr_t)Memory::PatternScan(GameModule, "B8 20 00 00 00 44 89 05 ?? ?? ?? ??");
         InitMovie = (InitMovie_t*)(Memory::PatternScan(GameModule, "48 83 EC 30 31 F6 89 74 24 40 E8 ?? ?? ?? ?? 39 35 ?? ?? ?? ?? 74 07") - 0xB);
-        FinishMap = (FinishMap_t*)(Memory::PatternScan(GameModule, "C7 44 24 ?? 76 01 F0 00") - 0x35);
 
-        if (playScriptOffset && menuStateOffset && movieTypeOffset && movieCurrentOffset && InitMovie && FinishMap)
+        if (initScriptVMOffset && menuStateOffset && movieTypeOffset && movieCurrentOffset && currentScriptOffset && scriptSkipFlag && InitMovie)
         {
-            uint8_t* playScriptOffset_Call = (uint8_t*)(playScriptOffset + 10);
-            int32_t playScriptOffset_Relative = *reinterpret_cast<int32_t*>(playScriptOffset_Call + 1);
-            uintptr_t playScriptOffset_Absolute = (uintptr_t)(playScriptOffset_Call + 5 + playScriptOffset_Relative);
-
             int32_t menuStateOffset_Relative = *reinterpret_cast<int32_t*>((uint8_t*)(menuStateOffset + 19));
             MenuState = (uint8_t*)(menuStateOffset + 23) + menuStateOffset_Relative;
 
@@ -85,7 +75,10 @@ void InstallHooks()
             int32_t movieCurrentOffset_Relative = *reinterpret_cast<int32_t*>(movieCurrent_Ptr);
             MovieCurrentId = (uint8_t*)(movieCurrent_Ptr + 4) + movieCurrentOffset_Relative;
 
-            Memory::DetourFunction(playScriptOffset_Absolute, (LPVOID)PlayScript_Hook, (LPVOID*)&PlayScript);
+            CurrentScript = (uint32_t*)(currentScriptOffset + 10 + *reinterpret_cast<int32_t*>(currentScriptOffset + 2));
+            SkipScriptFlag = (uint32_t*)(scriptSkipFlag + 12 + *reinterpret_cast<int32_t*>(scriptSkipFlag + 8));
+
+            Memory::DetourFunction(initScriptVMOffset, (LPVOID)InitScriptVM_Hook, (LPVOID*)&InitScriptVM);
         }
     }
 }
