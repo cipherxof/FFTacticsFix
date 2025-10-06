@@ -4,7 +4,7 @@ A plugin that aims to provide additional options and fix issues with Final Fanta
 ## Features
 - [x] Remove grain filter
 - [x] Play animated cutscene videos in place of the in-game cutscenes
-- [ ] Increased rendering resolution
+- [x] Increased rendering resolution
 - [ ] Increase framerate
       
 ## Installation
