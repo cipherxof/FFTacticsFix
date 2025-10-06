@@ -74,9 +74,9 @@ typedef void __fastcall CFFT_STATE__SetRenderSize_t(__int64 a1, int width, int h
 CFFT_STATE__SetRenderSize_t* CFFT_STATE__SetRenderSize;
 void __fastcall CFFT_STATE__SetRenderSize_Hook(__int64 a1, int width, int height)
 {
-    int factor = RenderScale / 4;
-    *FBO_W = 1920 * factor;
-    *FBO_H = 1080 * factor;
+    float factor = RenderScale / 4.0f;
+    *FBO_W = (int)(1920 * factor);
+    *FBO_H = (int)(1080 * factor);
 
     *InternalRenderScale = (float)RenderScale;
 
@@ -166,10 +166,10 @@ void ApplyPatches()
             int32_t clipScaleRelative = *(int32_t*)(clipScaleOffset + 9);
             ClipScale = (float*)(clipScaleOffset + 7 + 10 + clipScaleRelative);
 
-            int factor = RenderScale / 4;
+            float factor = RenderScale / 4.0f;
 
-            *FBO_W = 1920 * factor;
-            *FBO_H = 1080 * factor;
+            *FBO_W = (int)(1920 * factor);
+            *FBO_H = (int)(1080 * factor);
 
             DWORD oldProtect;
             VirtualProtect((LPVOID)(fboOffset - 0xA), 6, PAGE_EXECUTE_READWRITE, &oldProtect);
@@ -203,11 +203,14 @@ DWORD WINAPI MainThread(LPVOID lpParam)
     if (!std::filesystem::exists("scripts/FFTacticsFix.ini"))
         return true;
 
-    mINI::INIFile ini("scripts/FFTacticsFix.ini"); // todo: robust ini loading and logging
-    ini.read(ConfigValues);
-    PreferMovies = std::stoi(ConfigValues["Settings"]["PreferMovies"]) > 0;
-    DisableFilter = std::stoi(ConfigValues["Settings"]["DisableFilter"]) > 0;
-    RenderScale = std::stoi(ConfigValues["Settings"]["RenderScale"]);
+    try {
+        mINI::INIFile ini("scripts/FFTacticsFix.ini"); // todo: robust ini loading and logging
+        ini.read(ConfigValues);
+        PreferMovies = std::stoi(ConfigValues["Settings"]["PreferMovies"]) > 0;
+        DisableFilter = std::stoi(ConfigValues["Settings"]["DisableFilter"]) > 0;
+        RenderScale = std::stoi(ConfigValues["Settings"]["RenderScale"]);
+    }
+    catch (...) { }
 
     ApplyPatches();
 
