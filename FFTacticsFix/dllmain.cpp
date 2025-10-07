@@ -59,10 +59,19 @@ char __fastcall SetMovieId_Hook()
 {
     auto r = SetMovieId();
 
-    if (FBO_W && FBO_H && r > 0)
+    if (FBO_W && FBO_H)
     {
-        *FBO_W = 1920;
-        *FBO_H = 1080;
+        if (r > 0)
+        {
+            *FBO_W = 1920;
+            *FBO_H = 1080;
+        }
+        else if (RenderScale > 0 && RenderScale != 4)
+        {
+            float factor = RenderScale / 4.0f;
+            *FBO_W = (int)(1920 * factor);
+            *FBO_H = (int)(1080 * factor);
+        }
     }
 
     return r;
