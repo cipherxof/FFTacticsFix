@@ -53,15 +53,13 @@ __int64 __fastcall InitScriptVM_Hook()
     return result;
 }
 
-int temp = 0;
-
 typedef char __fastcall SetMovieId_t();
 SetMovieId_t* SetMovieId;
 char __fastcall SetMovieId_Hook()
 {
     auto r = SetMovieId();
 
-    if (r > 0)
+    if (FBO_W && FBO_H && r > 0)
     {
         *FBO_W = 1920;
         *FBO_H = 1080;
@@ -210,7 +208,9 @@ DWORD WINAPI MainThread(LPVOID lpParam)
         DisableFilter = std::stoi(ConfigValues["Settings"]["DisableFilter"]) > 0;
         RenderScale = std::stoi(ConfigValues["Settings"]["RenderScale"]);
     }
-    catch (...) { }
+    catch (...) {
+        return true;
+    }
 
     ApplyPatches();
 
