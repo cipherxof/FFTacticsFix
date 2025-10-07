@@ -95,7 +95,11 @@ void ApplyPatches()
         uint8_t* movieCurrentPtr = (uint8_t*)movieCurrentOffset + 3;
         int32_t movieCurrentOffsetRelative = *reinterpret_cast<int32_t*>(movieCurrentPtr);
         MovieCurrentId = (int8_t*)(movieCurrentPtr + 4) + movieCurrentOffsetRelative;
-        Memory::DetourFunction(movieCurrentOffset, (LPVOID)SetMovieId_Hook, (LPVOID*)&SetMovieId);
+
+        if (applyRenderScale) 
+        {
+            Memory::DetourFunction(movieCurrentOffset, (LPVOID)SetMovieId_Hook, (LPVOID*)&SetMovieId);
+        }
     }
 
     if (DisableFilter)
