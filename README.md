@@ -4,7 +4,7 @@ A plugin that aims to provide additional options and fix issues with Final Fanta
 ## Features
 - [x] Remove grain filter
 - [x] Play animated cutscene videos in place of the in-game cutscenes
-- [ ] Increased rendering resolution
+- [x] Increased rendering resolution
 - [ ] Increase framerate
       
 ## Installation
@@ -12,8 +12,21 @@ A plugin that aims to provide additional options and fix issues with Final Fanta
  
 <img width="905" height="352" alt="image" src="https://github.com/user-attachments/assets/6b576ce9-44c6-4a45-821a-d6674286312d" />
 
-## Default Filter
-<img width="2560" height="1440" alt="Final Fantasy Tactics - The Ivalice Chronicles Screenshot 2025 10 01 - 16 16 36 52" src="https://github.com/user-attachments/assets/d40ab0ce-c83e-4e66-a2ba-7f0b3ea28c3c" />
+## Configuration
 
-## Filter Removed
-<img width="2560" height="1440" alt="Final Fantasy Tactics - The Ivalice Chronicles Screenshot 2025 10 01 - 16 22 44 84" src="https://github.com/user-attachments/assets/e611b95e-0982-4cf4-add3-6aabda3029a7" />
+scripts/FFTacticsFix.ini
+
+```ini
+[Settings]
+RenderScale = 4 # 4 is the default. 10 is 4k
+PreferMovies = 1 # Play movies instead of cutscenes
+DisableFilter = 1 # Disable the grain filter
+```
+
+## Default
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/112803d7-8dc8-4669-8452-89d0f8e4bc8e" />
+
+## Filter Removed + Increased Resolution
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/83794be5-40a4-4f90-9dc3-ff4942744304" />
+
+
