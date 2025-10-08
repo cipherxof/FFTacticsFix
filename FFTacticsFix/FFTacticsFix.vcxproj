@@ -155,6 +155,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
+    <ClInclude Include="includes\config.h" />
     <ClInclude Include="includes\ini.h" />
     <ClInclude Include="includes\logger.h" />
     <ClInclude Include="includes\Memory.h" />

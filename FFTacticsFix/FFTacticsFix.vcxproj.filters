@@ -19,6 +19,7 @@
     <ClInclude Include="includes\logger.h">
       <Filter>includes</Filter>
     </ClInclude>
+    <ClInclude Include="includes\config.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="includes">

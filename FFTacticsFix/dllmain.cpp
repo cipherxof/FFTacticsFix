@@ -5,20 +5,18 @@
 #include "MinHook.h"
 #include "ini.h"
 #include "logger.h"
-#include <spdlog/spdlog.h>
+#include "config.h";
 
 HMODULE GameModule = 0;
 uintptr_t GameBase = 0;
 
 mINI::INIStructure ConfigValues;
-bool PreferMovies = false;
-bool DisableFilter = false;
-int RenderScale = 10;
+GameConfig Config;
+
 int* FBO_W = 0;
 int* FBO_H = 0;
 float* InternalRenderScale = 0;
 float* ClipScale = 0;
-
 uint8_t* MenuState = 0;
 uint8_t* MovieType = 0;
 int8_t* MovieCurrentId = 0;
@@ -45,7 +43,7 @@ __int64 __fastcall InitScriptVM_Hook()
 {
     auto result = InitScriptVM();
     int scriptId = *CurrentScript;
-    if (PreferMovies && *MenuState == 0 && ScriptVideoMap.find(scriptId) != ScriptVideoMap.end())
+    if (Config.PreferMovies && *MenuState == 0 && ScriptVideoMap.find(scriptId) != ScriptVideoMap.end())
     {
         *SkipScriptFlag = 1;
         *MovieCurrentId = ScriptVideoMap[scriptId];
@@ -61,7 +59,7 @@ char __fastcall SetMovieId_Hook()
 {
     char movieId = SetMovieId();
 
-    if (FBO_W && FBO_H && RenderScale > 0 && RenderScale != 4)
+    if (FBO_W && FBO_H && Config.RenderScale > 0 && Config.RenderScale != 4)
     {
         if (movieId > 0)
         {
@@ -70,7 +68,7 @@ char __fastcall SetMovieId_Hook()
         }
         else
         {
-            float factor = RenderScale / 4.0f;
+            float factor = Config.RenderScale / 4.0f;
             *FBO_W = (int)(1920 * factor);
             *FBO_H = (int)(1080 * factor);
         }
@@ -83,11 +81,11 @@ typedef void __fastcall CFFT_STATE__SetRenderSize_t(__int64 a1, int width, int h
 CFFT_STATE__SetRenderSize_t* CFFT_STATE__SetRenderSize;
 void __fastcall CFFT_STATE__SetRenderSize_Hook(__int64 a1, int width, int height)
 {
-    float factor = RenderScale / 4.0f;
+    float factor = Config.RenderScale / 4.0f;
     *FBO_W = (int)(1920 * factor);
     *FBO_H = (int)(1080 * factor);
 
-    *InternalRenderScale = (float)RenderScale;
+    *InternalRenderScale = (float)Config.RenderScale;
 
     CFFT_STATE__SetRenderSize(a1, width, height);
 
@@ -96,11 +94,18 @@ void __fastcall CFFT_STATE__SetRenderSize_Hook(__int64 a1, int width, int height
 
 void ApplyPatches()
 {
-    MH_Initialize();
+    spdlog::info("Installing hooks and applying patches...");
 
-    bool applyRenderScale = RenderScale > 0 && RenderScale != 4;
+    MH_STATUS status = MH_Initialize();
+    if (status != MH_OK)
+    {
+        spdlog::error("Failed to initialize MinHook, status: {}", (int)status);
+        return;
+    }
 
-    if (applyRenderScale || PreferMovies)
+    bool applyRenderScale = Config.RenderScale > 0 && Config.RenderScale != 4;
+
+    if (applyRenderScale || Config.PreferMovies)
     {
         uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
         uint8_t* movieCurrentPtr = (uint8_t*)movieCurrentOffset + 3;
@@ -113,7 +118,7 @@ void ApplyPatches()
         }
     }
 
-    if (DisableFilter)
+    if (Config.DisableFilter)
     {
         uintptr_t grainFilterOffset = (uintptr_t)Memory::PatternScan(GameModule, "38 ?? A0 55 02 00");
         uintptr_t pauseMenuViewportResizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "80 ?? B5 55 02 00 00");
@@ -131,9 +136,12 @@ void ApplyPatches()
             VirtualProtect((LPVOID)(pauseMenuViewportResizeOffset), 7, PAGE_EXECUTE_READWRITE, &oldProtect);
             memset((void*)pauseMenuViewportResizeOffset, 0x90, 7);
         }
+
+        spdlog::debug("grainFilterOffset: {:#x}", grainFilterOffset);
+        spdlog::debug("pauseMenuViewportResizeOffset: {:#x}", pauseMenuViewportResizeOffset);
     }
 
-    if (PreferMovies)
+    if (Config.PreferMovies)
     {
         uintptr_t initScriptVMOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 83 EC 20 E8");
         uintptr_t menuStateOffset = (uintptr_t)Memory::PatternScan(GameModule, "F6 05 ?? ?? ?? ?? 08 0F 85 ?? ?? ?? ?? 8D 5D");
@@ -156,6 +164,12 @@ void ApplyPatches()
 
             Memory::DetourFunction(initScriptVMOffset, (LPVOID)InitScriptVM_Hook, (LPVOID*)&InitScriptVM);
         }
+
+        spdlog::debug("initScriptVMOffset: {:#x}", initScriptVMOffset);
+        spdlog::debug("menuStateOffset: {:#x}", menuStateOffset);
+        spdlog::debug("movieTypeOffset: {:#x}", menuStateOffset);
+        spdlog::debug("currentScriptOffset: {:#x}", menuStateOffset);
+        spdlog::debug("scriptSkipFlag: {:#x}", menuStateOffset);
     }
 
     if (applyRenderScale)
@@ -179,7 +193,7 @@ void ApplyPatches()
             int32_t clipScaleRelative = *(int32_t*)(clipScaleOffset + 9);
             ClipScale = (float*)(clipScaleOffset + 7 + 10 + clipScaleRelative);
 
-            float factor = RenderScale / 4.0f;
+            float factor = Config.RenderScale / 4.0f;
 
             *FBO_W = (int)(1920 * factor);
             *FBO_H = (int)(1080 * factor);
@@ -195,7 +209,35 @@ void ApplyPatches()
 
             Memory::DetourFunction(setRenderSizeOffset, (LPVOID)CFFT_STATE__SetRenderSize_Hook, (LPVOID*)&CFFT_STATE__SetRenderSize);
         }
+
+        spdlog::debug("fboOffset: {:#x}", fboOffset);
+        spdlog::debug("resScaleOffset: {:#x}", resScaleOffset);
+        spdlog::debug("setRenderSizeOffset: {:#x}", setRenderSizeOffset);
+        spdlog::debug("clipScaleOffset: {:#x}", clipScaleOffset);
     }
+}
+
+void ReadConfig()
+{
+    std::string configPath = "scripts/FFTacticsFix.ini";
+    mINI::INIFile ini(configPath);
+    if (!ini.read(ConfigValues))
+    {
+        ConfigValues["Settings"]["PreferMovies"] = "0";
+        ConfigValues["Settings"]["DisableFilter"] = "0";
+        ConfigValues["Settings"]["RenderScale"] = "4";
+        ini.generate(ConfigValues);
+    }
+
+    auto readConfigInt = [](const std::string& str, int defaultValue) -> int {
+        if (str.empty()) return defaultValue;
+        try { return std::stoi(str); }
+        catch (...) { return defaultValue; }
+    };
+
+    Config.PreferMovies = readConfigInt(ConfigValues["Settings"]["PreferMovies"], 0);
+    Config.DisableFilter = readConfigInt(ConfigValues["Settings"]["DisableFilter"], 0);
+    Config.RenderScale = readConfigInt(ConfigValues["Settings"]["RenderScale"], 4);
 }
 
 DWORD WINAPI MainThread(LPVOID lpParam)
@@ -207,28 +249,17 @@ DWORD WINAPI MainThread(LPVOID lpParam)
         return true;
 
     WCHAR exePath[_MAX_PATH] = { 0 };
-    GetModuleFileName(GameModule, exePath, MAX_PATH);
+    GetModuleFileNameW(GameModule, exePath, MAX_PATH);
+    std::filesystem::path sExePath = exePath;
     WCHAR* filename = PathFindFileName(exePath);
 
     if (wcsncmp(filename, L"FFT_enhanced.exe", 16) != 0)
         return true;
 
-    if (!std::filesystem::exists("scripts/FFTacticsFix.ini"))
-        return true;
+    ReadConfig();
 
-    if (!InitializeLogger(GameModule))
+    if (!InitializeLogger(GameModule, sExePath))
         return true;
-
-    try {
-        mINI::INIFile ini("scripts/FFTacticsFix.ini"); // todo: robust ini loading and logging
-        ini.read(ConfigValues);
-        PreferMovies = std::stoi(ConfigValues["Settings"]["PreferMovies"]) > 0;
-        DisableFilter = std::stoi(ConfigValues["Settings"]["DisableFilter"]) > 0;
-        RenderScale = std::stoi(ConfigValues["Settings"]["RenderScale"]);
-    }
-    catch (...) {
-        return true;
-    }
 
     ApplyPatches();
 
