@@ -4,6 +4,8 @@
 #include "Memory.h"
 #include "MinHook.h"
 #include "ini.h"
+#include "logger.h"
+#include <spdlog/spdlog.h>
 
 HMODULE GameModule = 0;
 uintptr_t GameBase = 0;
@@ -212,6 +214,9 @@ DWORD WINAPI MainThread(LPVOID lpParam)
         return true;
 
     if (!std::filesystem::exists("scripts/FFTacticsFix.ini"))
+        return true;
+
+    if (!InitializeLogger(GameModule))
         return true;
 
     try {

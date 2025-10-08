@@ -3,6 +3,7 @@
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Memory.cpp" />
+    <ClCompile Include="logger.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
@@ -13,6 +14,9 @@
       <Filter>includes</Filter>
     </ClInclude>
     <ClInclude Include="includes\MinHook.h">
+      <Filter>includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\logger.h">
       <Filter>includes</Filter>
     </ClInclude>
   </ItemGroup>

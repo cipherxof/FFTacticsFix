@@ -141,7 +141,8 @@
       <Optimization>MaxSpeed</Optimization>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)\includes;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)\includes;..\external\spdlog\include;</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -155,11 +156,13 @@
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="includes\ini.h" />
+    <ClInclude Include="includes\logger.h" />
     <ClInclude Include="includes\Memory.h" />
     <ClInclude Include="includes\MinHook.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="logger.cpp" />
     <ClCompile Include="Memory.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
