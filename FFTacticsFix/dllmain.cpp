@@ -57,16 +57,16 @@ typedef char __fastcall SetMovieId_t();
 SetMovieId_t* SetMovieId;
 char __fastcall SetMovieId_Hook()
 {
-    auto r = SetMovieId();
+    char movieId = SetMovieId();
 
-    if (FBO_W && FBO_H)
+    if (FBO_W && FBO_H && RenderScale > 0 && RenderScale != 4)
     {
-        if (r > 0)
+        if (movieId > 0)
         {
             *FBO_W = 1920;
             *FBO_H = 1080;
         }
-        else if (RenderScale > 0 && RenderScale != 4)
+        else
         {
             float factor = RenderScale / 4.0f;
             *FBO_W = (int)(1920 * factor);
@@ -74,7 +74,7 @@ char __fastcall SetMovieId_Hook()
         }
     }
 
-    return r;
+    return movieId;
 }
 
 typedef void __fastcall CFFT_STATE__SetRenderSize_t(__int64 a1, int width, int height);
@@ -160,7 +160,7 @@ void ApplyPatches()
     {
         uintptr_t fboOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 38 04 00 00");
         uintptr_t resScaleOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F 2F 05 ?? ?? ?? ?? 72 ?? 44 88 ?? 26");
-        uintptr_t setRenderSizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 48 89 58 08 48 89 68 10 56 48");
+        uintptr_t setRenderSizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 ?? ?? 48 89 58 08 48 89 ?? 10 ?? 48 83 EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 0F 29 78");
         uintptr_t clipScaleOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 3D ?? ?? ?? ?? 07 C7 05 ?? ?? ?? ?? 00 00 80 3F");
 
         if (fboOffset && resScaleOffset)

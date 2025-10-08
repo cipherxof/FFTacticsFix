@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="Memory.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="framework.h" />
+    <ClInclude Include="includes\ini.h">
+      <Filter>includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\Memory.h">
+      <Filter>includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\MinHook.h">
+      <Filter>includes</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="includes">
+      <UniqueIdentifier>{ee8f53eb-6716-4579-bb3d-9e59d754173a}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
