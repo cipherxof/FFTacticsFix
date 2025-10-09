@@ -248,12 +248,12 @@ DWORD WINAPI MainThread(LPVOID lpParam)
     if (GameModule == 0)
         return true;
 
-    WCHAR exePath[_MAX_PATH] = { 0 };
-    GetModuleFileNameW(GameModule, exePath, MAX_PATH);
+    char exePath[_MAX_PATH] = { 0 };
+    GetModuleFileNameA(GameModule, exePath, _MAX_PATH);
+    char* filename = PathFindFileNameA(exePath);
     std::filesystem::path sExePath = exePath;
-    WCHAR* filename = PathFindFileName(exePath);
 
-    if (wcsncmp(filename, L"FFT_enhanced.exe", 16) != 0)
+    if (strncmp(filename, "FFT_enhanced.exe", 16) != 0)
         return true;
 
     ReadConfig();
