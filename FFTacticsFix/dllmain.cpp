@@ -1,4 +1,4 @@
-#include <shlwapi.h>
+﻿#include <shlwapi.h>
 #include <unordered_map>
 #include <filesystem>
 #include "Memory.h"
@@ -13,6 +13,10 @@ uintptr_t GameBase = 0;
 mINI::INIStructure ConfigValues;
 GameConfig Config;
 
+const int BASE_WIDTH = 1920;
+const int BASE_HEIGHT = 1080;
+const float BASE_ASPECT = 16.0f / 9.0f;
+
 int* FBO_W = 0;
 int* FBO_H = 0;
 float* InternalRenderScale = 0;
@@ -22,6 +26,10 @@ uint8_t* MovieType = 0;
 int8_t* MovieCurrentId = 0;
 uint32_t* CurrentScript = 0;
 uint32_t* SkipScriptFlag = 0;
+int* m_iScreenW = 0;
+int* m_iScreenH = 0;
+int* gEventOrBattle = 0;
+uintptr_t GraphicsManager = 0;
 
 std::unordered_map<int, int> ScriptVideoMap = 
 {
@@ -33,6 +41,30 @@ std::unordered_map<int, int> ScriptVideoMap =
     {255, 14}, // Ovelia and Delita
     {345, 15}, // Delita's Will
 };
+
+inline float GetAspectRatio()
+{
+    if (!m_iScreenW || !m_iScreenH)
+        return 0;
+
+    return *m_iScreenW / *m_iScreenH;
+}
+
+inline int GetScaledFBOWidth(float renderScaleFactor) 
+{
+    int width = m_iScreenW ? *m_iScreenW : BASE_WIDTH;
+    int height = m_iScreenH ? *m_iScreenH : BASE_HEIGHT;
+
+    float targetAspect = (float)width / (float)height;
+    float baseAspect = 16.0f / 9.0f;
+    float aspectCorrection = targetAspect / baseAspect;
+    return (int)(BASE_WIDTH * aspectCorrection * renderScaleFactor);
+}
+
+inline int GetScaledFBOHeight(float renderScaleFactor) 
+{
+    return (int)(BASE_HEIGHT * renderScaleFactor);
+}
 
 typedef __int64 __fastcall InitMovie_t();
 InitMovie_t* InitMovie = 0;
@@ -59,18 +91,18 @@ char __fastcall SetMovieId_Hook()
 {
     char movieId = SetMovieId();
 
-    if (FBO_W && FBO_H && Config.RenderScale > 0 && Config.RenderScale != 4)
+    if (FBO_W && FBO_H)
     {
         if (movieId > 0)
         {
-            *FBO_W = 1920;
-            *FBO_H = 1080;
+            *FBO_W = BASE_WIDTH;
+            *FBO_H = BASE_HEIGHT;
         }
         else
         {
             float factor = Config.RenderScale / 4.0f;
-            *FBO_W = (int)(1920 * factor);
-            *FBO_H = (int)(1080 * factor);
+            *FBO_W = GetScaledFBOWidth(factor);
+            *FBO_H = GetScaledFBOHeight(factor);
         }
     }
 
@@ -82,8 +114,8 @@ CFFT_STATE__SetRenderSize_t* CFFT_STATE__SetRenderSize;
 void __fastcall CFFT_STATE__SetRenderSize_Hook(__int64 a1, int width, int height)
 {
     float factor = Config.RenderScale / 4.0f;
-    *FBO_W = (int)(1920 * factor);
-    *FBO_H = (int)(1080 * factor);
+    *FBO_W = GetScaledFBOWidth(factor);
+    *FBO_H = GetScaledFBOHeight(factor);
 
     *InternalRenderScale = (float)Config.RenderScale;
 
@@ -92,45 +124,216 @@ void __fastcall CFFT_STATE__SetRenderSize_Hook(__int64 a1, int width, int height
     *ClipScale = 1.0f * (*InternalRenderScale / 4.0);
 }
 
-void ApplyPatches()
+typedef int* __fastcall CalculateViewportWithLetterboxing_t(int* a1, int a2, int a3, char a4);
+CalculateViewportWithLetterboxing_t* CalculateViewportWithLetterboxing;
+int* __fastcall CalculateViewportWithLetterboxing_Hook(int* outRect, int contentWidth, int contentHeight, char preserveWidth)
 {
-    spdlog::info("Installing hooks and applying patches...");
+    int letterboxOffsetX = 0;
+    int letterboxOffsetY = 0;
 
-    MH_STATUS status = MH_Initialize();
-    if (status != MH_OK)
+    int screenWidth = *m_iScreenW;
+    int screenHeight = *m_iScreenH;
+
+    float scale = (float)screenHeight / (float)contentHeight;
+
+    int scaledHeight = (int)((float)contentHeight * scale);
+    int scaledWidth;
+
+    if (!preserveWidth)
+        scaledWidth = (int)((float)contentWidth * scale);
+    else
+        scaledWidth = screenWidth;
+
+    int viewportX = (screenWidth - scaledWidth) / 2 + letterboxOffsetX;
+    int viewportY = (screenHeight - scaledHeight) / 2 + letterboxOffsetY;
+
+    outRect[0] = viewportX; // left
+    outRect[1] = viewportY; // top
+    outRect[2] = viewportX + scaledWidth; // right
+    outRect[3] = viewportY + scaledHeight; // bottom
+
+    return outRect;
+}
+
+typedef char __fastcall UILayerUpdate_t(__int64 layer);
+UILayerUpdate_t* UILayerUpdate;
+char __fastcall UILayerUpdate_Hook(__int64 layer)
+{
+    auto uiRenderer = *(__int64*)(*(uintptr_t*)GraphicsManager + 0x9430);
+    auto firstLayer = *(__int64*)(uiRenderer + 0xD0);
+
+    if (layer == firstLayer)
+        return 0; // hide pillarbox
+
+    return UILayerUpdate(layer);
+}
+
+typedef float* __fastcall SetupCameraCenter_t(__int64 a1, __int64 a2);
+SetupCameraCenter_t* SetupCameraCenter;
+float* __fastcall SetupCameraCenter_Hook(__int64 a1, __int64 a2)
+{
+    float originalX = *(float*)(a2 + 120);
+    float currentAspect = (float)*m_iScreenW / *m_iScreenH;
+    float aspectDelta = currentAspect - BASE_ASPECT;
+
+    float adjustment = aspectDelta * 105.0f;
+    *(float*)(a2 + 120) = originalX + adjustment;
+    float* result = SetupCameraCenter(a1, a2);
+    *(float*)(a2 + 120) = originalX;
+
+    return result;
+}
+
+typedef void __fastcall WorldToScreen_t(float* a1, float* a2, float* a3);
+WorldToScreen_t* WorldToScreen;
+void __fastcall WorldToScreen_Hook(float* a1, float* a2, float* a3)
+{
+    WorldToScreen(a1, a2, a3);
+
+    float factor = Config.RenderScale / 4.0f;
+    float scaledBaseWidth = BASE_WIDTH * factor;
+    float fboWidthDelta = (float)(*FBO_W) - scaledBaseWidth;
+    float offset = (fboWidthDelta * -0.0975f) / factor;
+    a2[0] = a2[0] + offset;
+}
+
+void PatchResolution()
+{
+    uintptr_t fboOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 38 04 00 00");
+    uintptr_t resScaleOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F 2F 05 ?? ?? ?? ?? 72 ?? 44 88 ?? 26");
+    uintptr_t setRenderSizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 ?? ?? 48 89 58 08 48 89 ?? 10 ?? 48 83 EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 0F 29 78");
+    uintptr_t clipScaleOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 3D ?? ?? ?? ?? 07 C7 05 ?? ?? ?? ?? 00 00 80 3F");
+
+    if (fboOffset && resScaleOffset && setRenderSizeOffset && clipScaleOffset)
     {
-        spdlog::error("Failed to initialize MinHook, status: {}", (int)status);
+        int32_t fboRelative = *(int32_t*)(fboOffset + 2);
+        uintptr_t fboHAddress = fboOffset + 10 + fboRelative;
+
+        FBO_W = (int*)(fboHAddress - 4);
+        FBO_H = (int*)(fboHAddress);
+
+        int32_t resScale_Relative = *(int32_t*)(resScaleOffset + 3);
+        InternalRenderScale = (float*)(resScaleOffset + 7 + resScale_Relative);
+
+        int32_t clipScaleRelative = *(int32_t*)(clipScaleOffset + 9);
+        ClipScale = (float*)(clipScaleOffset + 7 + 10 + clipScaleRelative);
+
+        DWORD oldProtect;
+        VirtualProtect((LPVOID)(fboOffset - 0xA), 6, PAGE_EXECUTE_READWRITE, &oldProtect);
+        memset((void*)(fboOffset - 0xA), 0x90, 6);
+
+        VirtualProtect((LPVOID)(fboOffset), 0xA, PAGE_EXECUTE_READWRITE, &oldProtect);
+        memset((void*)(fboOffset), 0x90, 0xA);
+
+        VirtualProtect((LPVOID)(InternalRenderScale), 4, PAGE_READWRITE, &oldProtect);
+
+        float factor = Config.RenderScale / 4.0f;
+        *FBO_W = (int)(BASE_WIDTH * factor);
+        *FBO_H = (int)(BASE_HEIGHT * factor);
+
+        spdlog::info("FBO: {}x{}", *FBO_W, *FBO_H);
+
+        Memory::DetourFunction(setRenderSizeOffset, (LPVOID)CFFT_STATE__SetRenderSize_Hook, (LPVOID*)&CFFT_STATE__SetRenderSize);
+    }
+
+    spdlog::debug("fboOffset: {:#x}", fboOffset);
+    spdlog::debug("resScaleOffset: {:#x}", resScaleOffset);
+    spdlog::debug("setRenderSizeOffset: {:#x}", setRenderSizeOffset);
+    spdlog::debug("clipScaleOffset: {:#x}", clipScaleOffset);
+    //spdlog::debug("eventOrBattleOffset: {:#x}", (__int64)gEventOrBattle);
+}
+
+void PatchViewport()
+{
+    uintptr_t m_iScreenWOffset = (uintptr_t)Memory::PatternScan(GameModule, "BE 80 07 00 00 89 ?? ?? ?? ?? ??");
+
+    if (!m_iScreenWOffset)
+    {
+        spdlog::error("Failed to find screen width offset");
         return;
     }
 
-    bool applyRenderScale = Config.RenderScale > 0 && Config.RenderScale != 4;
-
-    if (applyRenderScale || Config.PreferMovies)
+    uintptr_t m_iScreenHOffset = (uintptr_t)Memory::PatternScan(GameModule, "B9 E0 04 00 00 89 ?? ?? ?? ?? ??");
+    if (!m_iScreenHOffset)
     {
-        uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
-        uint8_t* movieCurrentPtr = (uint8_t*)movieCurrentOffset + 3;
-        int32_t movieCurrentOffsetRelative = *reinterpret_cast<int32_t*>(movieCurrentPtr);
-        MovieCurrentId = (int8_t*)(movieCurrentPtr + 4) + movieCurrentOffsetRelative;
-
-        if (applyRenderScale) 
-        {
-            Memory::DetourFunction(movieCurrentOffset, (LPVOID)SetMovieId_Hook, (LPVOID*)&SetMovieId);
-        }
+        spdlog::error("Failed to find screen height offset");
+        return;
     }
+
+    m_iScreenW = (int*)(m_iScreenWOffset + 11 + *(int32_t*)(m_iScreenWOffset + 7));
+    m_iScreenH = (int*)(m_iScreenHOffset + 11 + *(int32_t*)(m_iScreenHOffset + 7));
+
+    spdlog::info("Screen Dimensions: {}x{}", *m_iScreenW, *m_iScreenH);
+
+    float aspect = GetAspectRatio();
+    if (aspect < BASE_ASPECT)
+        return;
+
+    uintptr_t setupCamCenterOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 55 48 8D 68");
+    uintptr_t world2ScreenOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 48 89 58 18 48 89 78 20 55 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 0F 29 78 ?? 44 0F 29 40 ?? 44 0F 29 48 ??");
+    uintptr_t calcViewportOffset = (uintptr_t)(Memory::PatternScan(GameModule, "89 78 20 41 56 41 57 48 8B 05") - 0x10);
+    uintptr_t rightPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 80 E2 43");
+    uintptr_t leftPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 00 6C 42 00 00 70 42");
+    //uintptr_t eventOrBattleOffset = (uintptr_t)Memory::PatternScan(GameModule, "41 BE 80 00 00 00 89 35 ?? ?? ?? ?? 89 35");
+    uintptr_t layerUpdateOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 55 53 56 57 48");
+    uintptr_t graphicsManagerOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B 05 ?? ?? ?? ?? ?? 8B ?? 30 94 00 00");
+
+    if (setupCamCenterOffset && world2ScreenOffset && layerUpdateOffset && graphicsManagerOffset)
+    {
+        DWORD oldProtect;
+        VirtualProtect((LPVOID)(leftPlaneClipOffset), 4, PAGE_READWRITE, &oldProtect);
+        VirtualProtect((LPVOID)(rightPlaneClipOffset), 4, PAGE_READWRITE, &oldProtect);
+
+        *(float*)(leftPlaneClipOffset) = *(float*)(leftPlaneClipOffset) * -2;
+        *(float*)(rightPlaneClipOffset) = *(float*)(rightPlaneClipOffset) * 2;
+
+        GraphicsManager = (uintptr_t)(graphicsManagerOffset + *(int*)(graphicsManagerOffset + 3) + 7);
+        //gEventOrBattle = (int*)(eventOrBattleOffset + 18 + *(int32_t*)(eventOrBattleOffset + 14));
+
+        Memory::DetourFunction(calcViewportOffset, (LPVOID)CalculateViewportWithLetterboxing_Hook, (LPVOID*)&CalculateViewportWithLetterboxing);
+        Memory::DetourFunction(layerUpdateOffset, (LPVOID)UILayerUpdate_Hook, (LPVOID*)&UILayerUpdate);
+        Memory::DetourFunction(setupCamCenterOffset, (LPVOID)SetupCameraCenter_Hook, (LPVOID*)&SetupCameraCenter);
+        Memory::DetourFunction(world2ScreenOffset, (LPVOID)WorldToScreen_Hook, (LPVOID*)&WorldToScreen);
+
+        spdlog::debug("setupCamCenterOffset: {:#x}", setupCamCenterOffset);
+        spdlog::debug("world2ScreenOffset: {:#x}", world2ScreenOffset);
+        spdlog::debug("calcViewportOffset: {:#x}", calcViewportOffset);
+        spdlog::debug("rightPlaneClipOffset: {:#x}", rightPlaneClipOffset);
+        spdlog::debug("leftPlaneClipOffset: {:#x}", leftPlaneClipOffset);
+        spdlog::debug("layerUpdateOffset: {:#x}", layerUpdateOffset);
+        spdlog::debug("graphicsManagerOffset: {:#x}", GraphicsManager);
+    }
+}
+
+// pattern matching has gotten out of hand. 
+// possibly better to hardcode offsets based on exe version
+void ApplyPatches()
+{
+    uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
+    uint8_t* movieCurrentPtr = (uint8_t*)movieCurrentOffset + 3;
+    int32_t movieCurrentOffsetRelative = *reinterpret_cast<int32_t*>(movieCurrentPtr);
+    MovieCurrentId = (int8_t*)(movieCurrentPtr + 4) + movieCurrentOffsetRelative;
+
+    if (movieCurrentOffset)
+    {
+        Memory::DetourFunction(movieCurrentOffset, (LPVOID)SetMovieId_Hook, (LPVOID*)&SetMovieId);
+    }
+
+    spdlog::debug("movieCurrentOffset: {:#x}", movieCurrentOffset);
 
     if (Config.DisableFilter)
     {
         uintptr_t grainFilterOffset = (uintptr_t)Memory::PatternScan(GameModule, "38 ?? A0 55 02 00");
         uintptr_t pauseMenuViewportResizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "80 ?? B5 55 02 00 00");
 
-        if (grainFilterOffset) 
+        if (grainFilterOffset)
         {
             DWORD oldProtect;
             VirtualProtect((LPVOID)(grainFilterOffset), 6, PAGE_EXECUTE_READWRITE, &oldProtect);
             memset((void*)grainFilterOffset, 0x90, 6);
         }
 
-        if (pauseMenuViewportResizeOffset) 
+        if (pauseMenuViewportResizeOffset)
         {
             DWORD oldProtect;
             VirtualProtect((LPVOID)(pauseMenuViewportResizeOffset), 7, PAGE_EXECUTE_READWRITE, &oldProtect);
@@ -171,50 +374,39 @@ void ApplyPatches()
         spdlog::debug("currentScriptOffset: {:#x}", menuStateOffset);
         spdlog::debug("scriptSkipFlag: {:#x}", menuStateOffset);
     }
+}
 
-    if (applyRenderScale)
+typedef void GX_Init_t();
+GX_Init_t* GX_Init;
+void GX_Init_Hook()
+{
+    PatchResolution();
+    GX_Init();
+    PatchViewport();
+    ApplyPatches();
+}
+
+void Init()
+{
+    spdlog::info("Installing hooks and applying patches...");
+
+    MH_STATUS status = MH_Initialize();
+    if (status != MH_OK)
     {
-        uintptr_t fboOffset = (uintptr_t)Memory::PatternScan(GameModule, "C7 05 ?? ?? ?? ?? 38 04 00 00");
-        uintptr_t resScaleOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F 2F 05 ?? ?? ?? ?? 72 ?? 44 88 ?? 26");
-        uintptr_t setRenderSizeOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 ?? ?? 48 89 58 08 48 89 ?? 10 ?? 48 83 EC ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 0F 29 78");
-        uintptr_t clipScaleOffset = (uintptr_t)Memory::PatternScan(GameModule, "83 3D ?? ?? ?? ?? 07 C7 05 ?? ?? ?? ?? 00 00 80 3F");
-
-        if (fboOffset && resScaleOffset)
-        {
-            int32_t fboRelative = *(int32_t*)(fboOffset + 2);
-            uintptr_t fboHAddress = fboOffset + 10 + fboRelative;
-
-            FBO_W = (int*)(fboHAddress - 4);
-            FBO_H = (int*)(fboHAddress);
-
-            int32_t resScale_Relative = *(int32_t*)(resScaleOffset + 3);
-            InternalRenderScale = (float*)(resScaleOffset + 7 + resScale_Relative);
-
-            int32_t clipScaleRelative = *(int32_t*)(clipScaleOffset + 9);
-            ClipScale = (float*)(clipScaleOffset + 7 + 10 + clipScaleRelative);
-
-            float factor = Config.RenderScale / 4.0f;
-
-            *FBO_W = (int)(1920 * factor);
-            *FBO_H = (int)(1080 * factor);
-
-            DWORD oldProtect;
-            VirtualProtect((LPVOID)(fboOffset - 0xA), 6, PAGE_EXECUTE_READWRITE, &oldProtect);
-            memset((void*)(fboOffset - 0xA), 0x90, 6);
-
-            VirtualProtect((LPVOID)(fboOffset), 0xA, PAGE_EXECUTE_READWRITE, &oldProtect);
-            memset((void*)(fboOffset), 0x90, 0xA);
-
-            VirtualProtect((LPVOID)(InternalRenderScale), 4, PAGE_READWRITE, &oldProtect);
-
-            Memory::DetourFunction(setRenderSizeOffset, (LPVOID)CFFT_STATE__SetRenderSize_Hook, (LPVOID*)&CFFT_STATE__SetRenderSize);
-        }
-
-        spdlog::debug("fboOffset: {:#x}", fboOffset);
-        spdlog::debug("resScaleOffset: {:#x}", resScaleOffset);
-        spdlog::debug("setRenderSizeOffset: {:#x}", setRenderSizeOffset);
-        spdlog::debug("clipScaleOffset: {:#x}", clipScaleOffset);
+        spdlog::error("Failed to initialize MinHook, status: {}", (int)status);
+        return;
     }
+
+    uintptr_t gxInitOffset = (uintptr_t)(Memory::PatternScan(GameModule, "ED B9 30 18 00 00") - 0x3A);
+
+    if (!gxInitOffset)
+    {
+        spdlog::error("Unable to find GX_Init!");
+        return;
+    }
+
+    Memory::DetourFunction(gxInitOffset, (LPVOID)GX_Init_Hook, (LPVOID*)&GX_Init);
+    spdlog::debug("gxInitOffset: {:#x}", gxInitOffset);
 }
 
 void ReadConfig()
@@ -261,7 +453,7 @@ DWORD WINAPI MainThread(LPVOID lpParam)
     if (!InitializeLogger(GameModule, sExePath))
         return true;
 
-    ApplyPatches();
+    Init();
 
     return true;
 }
