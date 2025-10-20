@@ -240,7 +240,6 @@ void PatchResolution()
     spdlog::debug("resScaleOffset: {:#x}", resScaleOffset);
     spdlog::debug("setRenderSizeOffset: {:#x}", setRenderSizeOffset);
     spdlog::debug("clipScaleOffset: {:#x}", clipScaleOffset);
-    //spdlog::debug("eventOrBattleOffset: {:#x}", (__int64)gEventOrBattle);
 }
 
 void PatchViewport()
@@ -274,11 +273,11 @@ void PatchViewport()
     uintptr_t calcViewportOffset = (uintptr_t)(Memory::PatternScan(GameModule, "89 78 20 41 56 41 57 48 8B 05") - 0x10);
     uintptr_t rightPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 80 E2 43");
     uintptr_t leftPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 00 6C 42 00 00 70 42");
-    //uintptr_t eventOrBattleOffset = (uintptr_t)Memory::PatternScan(GameModule, "41 BE 80 00 00 00 89 35 ?? ?? ?? ?? 89 35");
     uintptr_t layerUpdateOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 55 53 56 57 48");
     uintptr_t graphicsManagerOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B 05 ?? ?? ?? ?? ?? 8B ?? 30 94 00 00");
 
-    if (setupCamCenterOffset && world2ScreenOffset && layerUpdateOffset && graphicsManagerOffset)
+    if (setupCamCenterOffset && world2ScreenOffset && calcViewportOffset && rightPlaneClipOffset && 
+        leftPlaneClipOffset && layerUpdateOffset && graphicsManagerOffset)
     {
         DWORD oldProtect;
         VirtualProtect((LPVOID)(leftPlaneClipOffset), 4, PAGE_READWRITE, &oldProtect);
@@ -288,21 +287,20 @@ void PatchViewport()
         *(float*)(rightPlaneClipOffset) = *(float*)(rightPlaneClipOffset) * 2;
 
         GraphicsManager = (uintptr_t)(graphicsManagerOffset + *(int*)(graphicsManagerOffset + 3) + 7);
-        //gEventOrBattle = (int*)(eventOrBattleOffset + 18 + *(int32_t*)(eventOrBattleOffset + 14));
 
         Memory::DetourFunction(calcViewportOffset, (LPVOID)CalculateViewportWithLetterboxing_Hook, (LPVOID*)&CalculateViewportWithLetterboxing);
         Memory::DetourFunction(layerUpdateOffset, (LPVOID)UILayerUpdate_Hook, (LPVOID*)&UILayerUpdate);
         Memory::DetourFunction(setupCamCenterOffset, (LPVOID)SetupCameraCenter_Hook, (LPVOID*)&SetupCameraCenter);
         Memory::DetourFunction(world2ScreenOffset, (LPVOID)WorldToScreen_Hook, (LPVOID*)&WorldToScreen);
-
-        spdlog::debug("setupCamCenterOffset: {:#x}", setupCamCenterOffset);
-        spdlog::debug("world2ScreenOffset: {:#x}", world2ScreenOffset);
-        spdlog::debug("calcViewportOffset: {:#x}", calcViewportOffset);
-        spdlog::debug("rightPlaneClipOffset: {:#x}", rightPlaneClipOffset);
-        spdlog::debug("leftPlaneClipOffset: {:#x}", leftPlaneClipOffset);
-        spdlog::debug("layerUpdateOffset: {:#x}", layerUpdateOffset);
-        spdlog::debug("graphicsManagerOffset: {:#x}", GraphicsManager);
     }
+
+    spdlog::debug("setupCamCenterOffset: {:#x}", setupCamCenterOffset);
+    spdlog::debug("world2ScreenOffset: {:#x}", world2ScreenOffset);
+    spdlog::debug("calcViewportOffset: {:#x}", calcViewportOffset);
+    spdlog::debug("rightPlaneClipOffset: {:#x}", rightPlaneClipOffset);
+    spdlog::debug("leftPlaneClipOffset: {:#x}", leftPlaneClipOffset);
+    spdlog::debug("layerUpdateOffset: {:#x}", layerUpdateOffset);
+    spdlog::debug("graphicsManagerOffset: {:#x}", GraphicsManager);
 }
 
 // pattern matching has gotten out of hand. 
