@@ -36,4 +36,5 @@ Use the following launch options
  
 ## Before/After (Filter Removed/Increased Resolution/Ultrawide)
 
-![og (1)](https://github.com/user-attachments/assets/89c91aab-88a7-4bac-bd14-42c5d597cacc)
+![ultrawide](https://github.com/user-attachments/assets/4ff92e18-cf6e-4ef3-84ad-164fa4f05638)
+
