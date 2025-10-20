@@ -45,7 +45,7 @@ std::unordered_map<int, int> ScriptVideoMap =
 inline float GetAspectRatio()
 {
     if (!m_iScreenW || !m_iScreenH)
-        return 0;
+        return BASE_ASPECT;
 
     return *m_iScreenW / *m_iScreenH;
 }
@@ -56,8 +56,7 @@ inline int GetScaledFBOWidth(float renderScaleFactor)
     int height = m_iScreenH ? *m_iScreenH : BASE_HEIGHT;
 
     float targetAspect = (float)width / (float)height;
-    float baseAspect = 16.0f / 9.0f;
-    float aspectCorrection = targetAspect / baseAspect;
+    float aspectCorrection = targetAspect <= BASE_ASPECT ? 1.0f : targetAspect / BASE_ASPECT;
     return (int)(BASE_WIDTH * aspectCorrection * renderScaleFactor);
 }
 
@@ -128,6 +127,10 @@ typedef int* __fastcall CalculateViewportWithLetterboxing_t(int* a1, int a2, int
 CalculateViewportWithLetterboxing_t* CalculateViewportWithLetterboxing;
 int* __fastcall CalculateViewportWithLetterboxing_Hook(int* outRect, int contentWidth, int contentHeight, char preserveWidth)
 {
+    float currentAspect = GetAspectRatio();
+    if (currentAspect <= BASE_ASPECT)
+        return CalculateViewportWithLetterboxing(outRect, contentWidth, contentHeight, preserveWidth);
+
     int letterboxOffsetX = 0;
     int letterboxOffsetY = 0;
 
@@ -159,6 +162,10 @@ typedef char __fastcall UILayerUpdate_t(__int64 layer);
 UILayerUpdate_t* UILayerUpdate;
 char __fastcall UILayerUpdate_Hook(__int64 layer)
 {
+    float currentAspect = GetAspectRatio();
+    if (currentAspect <= BASE_ASPECT)
+        return UILayerUpdate(layer);
+
     auto uiRenderer = *(__int64*)(*(uintptr_t*)GraphicsManager + 0x9430);
     auto firstLayer = *(__int64*)(uiRenderer + 0xD0);
 
@@ -172,8 +179,11 @@ typedef float* __fastcall SetupCameraCenter_t(__int64 a1, __int64 a2);
 SetupCameraCenter_t* SetupCameraCenter;
 float* __fastcall SetupCameraCenter_Hook(__int64 a1, __int64 a2)
 {
+    float currentAspect = GetAspectRatio();
+    if (currentAspect <= BASE_ASPECT)
+        return SetupCameraCenter(a1, a2);;
+
     float originalX = *(float*)(a2 + 120);
-    float currentAspect = (float)*m_iScreenW / *m_iScreenH;
     float aspectDelta = currentAspect - BASE_ASPECT;
 
     float adjustment = aspectDelta * 105.0f;
@@ -190,11 +200,30 @@ void __fastcall WorldToScreen_Hook(float* a1, float* a2, float* a3)
 {
     WorldToScreen(a1, a2, a3);
 
+    float currentAspect = GetAspectRatio();
+    if (currentAspect <= BASE_ASPECT)
+        return;
+
     float factor = Config.RenderScale / 4.0f;
     float scaledBaseWidth = BASE_WIDTH * factor;
     float fboWidthDelta = (float)(*FBO_W) - scaledBaseWidth;
     float offset = (fboWidthDelta * -0.0975f) / factor;
     a2[0] = a2[0] + offset;
+}
+
+typedef __int64 __fastcall SetScreenSize_t(__int64 a1, int width, int height);
+SetScreenSize_t* SetScreenSize;
+__int64 __fastcall SetScreenSize_Hook(__int64 a1, int width, int height)
+{
+    spdlog::info("SetScreenSize: {}x{}", width, height);
+
+    auto result = SetScreenSize(a1, width, height);
+
+    float factor = Config.RenderScale / 4.0f;
+    *FBO_W = GetScaledFBOWidth(factor);
+    *FBO_H = GetScaledFBOHeight(factor);
+
+    return result;
 }
 
 void PatchResolution()
@@ -263,10 +292,6 @@ void PatchViewport()
     m_iScreenH = (int*)(m_iScreenHOffset + 11 + *(int32_t*)(m_iScreenHOffset + 7));
 
     spdlog::info("Screen Dimensions: {}x{}", *m_iScreenW, *m_iScreenH);
-
-    float aspect = GetAspectRatio();
-    if (aspect < BASE_ASPECT)
-        return;
 
     uintptr_t setupCamCenterOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 55 48 8D 68");
     uintptr_t world2ScreenOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 48 89 58 18 48 89 78 20 55 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? 0F 29 70 ?? 0F 29 78 ?? 44 0F 29 40 ?? 44 0F 29 48 ??");
@@ -396,6 +421,7 @@ void Init()
     }
 
     uintptr_t gxInitOffset = (uintptr_t)(Memory::PatternScan(GameModule, "ED B9 30 18 00 00") - 0x3A);
+    uintptr_t setScreenSizeOffset = (uintptr_t)(Memory::PatternScan(GameModule, "48 39 ?? 58 75") - 0xB);
 
     if (!gxInitOffset)
     {
@@ -404,7 +430,14 @@ void Init()
     }
 
     Memory::DetourFunction(gxInitOffset, (LPVOID)GX_Init_Hook, (LPVOID*)&GX_Init);
-    spdlog::debug("gxInitOffset: {:#x}", gxInitOffset);
+
+    if (!setScreenSizeOffset)
+    {
+        spdlog::error("Unable to find SetScreenSize!");
+        return;
+    }
+
+    Memory::DetourFunction(setScreenSizeOffset, (LPVOID)SetScreenSize_Hook, (LPVOID*)&SetScreenSize);
 }
 
 void ReadConfig()
