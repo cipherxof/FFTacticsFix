@@ -92,14 +92,15 @@ char __fastcall SetMovieId_Hook()
 
     if (FBO_W && FBO_H)
     {
+        float factor = Config.RenderScale / 4.0f;
+
         if (movieId > 0)
         {
-            *FBO_W = BASE_WIDTH;
-            *FBO_H = BASE_HEIGHT;
+            *FBO_W = factor < 1.0f ? BASE_WIDTH * factor : BASE_WIDTH;
+            *FBO_H = factor < 1.0f ? BASE_HEIGHT * factor : BASE_HEIGHT;
         }
         else
         {
-            float factor = Config.RenderScale / 4.0f;
             *FBO_W = GetScaledFBOWidth(factor);
             *FBO_H = GetScaledFBOHeight(factor);
         }
