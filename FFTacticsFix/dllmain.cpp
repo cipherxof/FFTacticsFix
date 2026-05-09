@@ -16,6 +16,9 @@ GameConfig Config;
 const int BASE_WIDTH = 1920;
 const int BASE_HEIGHT = 1080;
 const float BASE_ASPECT = 16.0f / 9.0f;
+const float ASPECT_EPSILON = 0.001f;
+const float BASE_WORLD_WIDTH = 374.0f;
+const float BASE_WORLD_HEIGHT = 240.0f;
 
 int* FBO_W = 0;
 int* FBO_H = 0;
@@ -44,25 +47,34 @@ std::unordered_map<int, int> ScriptVideoMap =
 
 inline float GetAspectRatio()
 {
-    if (!m_iScreenW || !m_iScreenH)
+    if (!m_iScreenW || !m_iScreenH || *m_iScreenH == 0)
         return BASE_ASPECT;
 
-    return *m_iScreenW / *m_iScreenH;
+    return (float)*m_iScreenW / (float)*m_iScreenH;
 }
 
-inline int GetScaledFBOWidth(float renderScaleFactor) 
+inline bool IsWiderThanBase()
 {
-    int width = m_iScreenW ? *m_iScreenW : BASE_WIDTH;
-    int height = m_iScreenH ? *m_iScreenH : BASE_HEIGHT;
-
-    float targetAspect = (float)width / (float)height;
-    float aspectCorrection = targetAspect <= BASE_ASPECT ? 1.0f : targetAspect / BASE_ASPECT;
-    return (int)(BASE_WIDTH * aspectCorrection * renderScaleFactor);
+    return GetAspectRatio() > BASE_ASPECT + ASPECT_EPSILON;
 }
 
-inline int GetScaledFBOHeight(float renderScaleFactor) 
+inline bool IsTallerThanBase()
 {
-    return (int)(BASE_HEIGHT * renderScaleFactor);
+    return GetAspectRatio() < BASE_ASPECT - ASPECT_EPSILON;
+}
+
+inline int GetScaledFBOWidth(float renderScaleFactor)
+{
+    float aspect = GetAspectRatio();
+    float widthScale = aspect > BASE_ASPECT ? aspect / BASE_ASPECT : 1.0f;
+    return (int)(BASE_WIDTH * widthScale * renderScaleFactor);
+}
+
+inline int GetScaledFBOHeight(float renderScaleFactor)
+{
+    float aspect = GetAspectRatio();
+    float heightScale = aspect < BASE_ASPECT ? BASE_ASPECT / aspect : 1.0f;
+    return (int)(BASE_HEIGHT * heightScale * renderScaleFactor);
 }
 
 typedef __int64 __fastcall InitMovie_t();
@@ -129,32 +141,36 @@ CalculateViewportWithLetterboxing_t* CalculateViewportWithLetterboxing;
 int* __fastcall CalculateViewportWithLetterboxing_Hook(int* outRect, int contentWidth, int contentHeight, char preserveWidth)
 {
     float currentAspect = GetAspectRatio();
-    if (currentAspect <= BASE_ASPECT)
-        return CalculateViewportWithLetterboxing(outRect, contentWidth, contentHeight, preserveWidth);
 
-    int letterboxOffsetX = 0;
-    int letterboxOffsetY = 0;
+    if (!IsWiderThanBase() && !IsTallerThanBase())
+        return CalculateViewportWithLetterboxing(outRect, contentWidth, contentHeight, preserveWidth);
 
     int screenWidth = *m_iScreenW;
     int screenHeight = *m_iScreenH;
 
-    float scale = (float)screenHeight / (float)contentHeight;
-
-    int scaledHeight = (int)((float)contentHeight * scale);
     int scaledWidth;
+    int scaledHeight;
 
-    if (!preserveWidth)
-        scaledWidth = (int)((float)contentWidth * scale);
+    if (currentAspect > BASE_ASPECT)
+    {
+        float scale = (float)screenHeight / (float)contentHeight;
+        scaledHeight = (int)((float)contentHeight * scale);
+        scaledWidth = preserveWidth ? screenWidth : (int)((float)contentWidth * scale);
+    }
     else
-        scaledWidth = screenWidth;
+    {
+        float scale = (float)screenWidth / (float)contentWidth;
+        scaledWidth = (int)((float)contentWidth * scale);
+        scaledHeight = preserveWidth ? screenHeight : (int)((float)contentHeight * scale);
+    }
 
-    int viewportX = (screenWidth - scaledWidth) / 2 + letterboxOffsetX;
-    int viewportY = (screenHeight - scaledHeight) / 2 + letterboxOffsetY;
+    int viewportX = (screenWidth - scaledWidth) / 2;
+    int viewportY = (screenHeight - scaledHeight) / 2;
 
-    outRect[0] = viewportX; // left
-    outRect[1] = viewportY; // top
-    outRect[2] = viewportX + scaledWidth; // right
-    outRect[3] = viewportY + scaledHeight; // bottom
+    outRect[0] = viewportX;
+    outRect[1] = viewportY;
+    outRect[2] = viewportX + scaledWidth;
+    outRect[3] = viewportY + scaledHeight;
 
     return outRect;
 }
@@ -163,8 +179,7 @@ typedef char __fastcall UILayerUpdate_t(__int64 layer);
 UILayerUpdate_t* UILayerUpdate;
 char __fastcall UILayerUpdate_Hook(__int64 layer)
 {
-    float currentAspect = GetAspectRatio();
-    if (currentAspect <= BASE_ASPECT)
+    if (!IsWiderThanBase() && !IsTallerThanBase())
         return UILayerUpdate(layer);
 
     auto uiRenderer = *(__int64*)(*(uintptr_t*)GraphicsManager + 0x9430);
@@ -181,18 +196,31 @@ SetupCameraCenter_t* SetupCameraCenter;
 float* __fastcall SetupCameraCenter_Hook(__int64 a1, __int64 a2)
 {
     float currentAspect = GetAspectRatio();
-    if (currentAspect <= BASE_ASPECT)
-        return SetupCameraCenter(a1, a2);;
 
-    float originalX = *(float*)(a2 + 120);
-    float aspectDelta = currentAspect - BASE_ASPECT;
+    if (currentAspect > BASE_ASPECT + ASPECT_EPSILON)
+    {
+        float ratio = currentAspect / BASE_ASPECT;
+        float adjustment = BASE_WORLD_WIDTH * 0.5f * (ratio - 1.0f);
 
-    float adjustment = aspectDelta * 105.0f;
-    *(float*)(a2 + 120) = originalX + adjustment;
-    float* result = SetupCameraCenter(a1, a2);
-    *(float*)(a2 + 120) = originalX;
+        float originalX = *(float*)(a2 + 120);
+        *(float*)(a2 + 120) = originalX + adjustment;
+        float* result = SetupCameraCenter(a1, a2);
+        *(float*)(a2 + 120) = originalX;
+        return result;
+    }
+    else if (currentAspect < BASE_ASPECT - ASPECT_EPSILON)
+    {
+        float ratio = BASE_ASPECT / currentAspect;
+        float adjustment = BASE_WORLD_HEIGHT * 0.5f * (ratio - 1.0f);
 
-    return result;
+        float originalY = *(float*)(a2 + 124);
+        *(float*)(a2 + 124) = originalY + adjustment;
+        float* result = SetupCameraCenter(a1, a2);
+        *(float*)(a2 + 124) = originalY;
+        return result;
+    }
+
+    return SetupCameraCenter(a1, a2);
 }
 
 typedef void __fastcall WorldToScreen_t(float* a1, float* a2, float* a3);
@@ -201,15 +229,16 @@ void __fastcall WorldToScreen_Hook(float* a1, float* a2, float* a3)
 {
     WorldToScreen(a1, a2, a3);
 
-    float currentAspect = GetAspectRatio();
-    if (currentAspect <= BASE_ASPECT)
-        return;
-
     float factor = Config.RenderScale / 4.0f;
     float scaledBaseWidth = BASE_WIDTH * factor;
     float fboWidthDelta = (float)(*FBO_W) - scaledBaseWidth;
-    float offset = (fboWidthDelta * -0.0975f) / factor;
-    a2[0] = a2[0] + offset;
+    float offsetWidth = (fboWidthDelta * -0.0975f) / factor;
+    a2[0] = a2[0] + offsetWidth;
+
+    float scaledBaseHeight = BASE_HEIGHT * factor;
+    float fboHeightDelta = (float)(*FBO_H) - scaledBaseHeight;
+    float offsetHeight = (fboHeightDelta * -0.1111f) / factor;
+    a2[1] = a2[1] + offsetHeight;
 }
 
 typedef __int64 __fastcall SetScreenSize_t(__int64 a1, int width, int height);
@@ -299,10 +328,12 @@ void PatchViewport()
     uintptr_t calcViewportOffset = (uintptr_t)(Memory::PatternScan(GameModule, "89 78 20 41 56 41 57 48 8B 05") - 0x10);
     uintptr_t rightPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 80 E2 43");
     uintptr_t leftPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 00 6C 42 00 00 70 42");
+    uintptr_t topPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 00 7A 43");
+    uintptr_t bottomPlaneClipOffset = (uintptr_t)Memory::PatternScan(GameModule, "00 00 20 C1 00 00 50 C1");
     uintptr_t layerUpdateOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B C4 55 53 56 57 48");
     uintptr_t graphicsManagerOffset = (uintptr_t)Memory::PatternScan(GameModule, "48 8B 05 ?? ?? ?? ?? ?? 8B ?? 30 94 00 00");
 
-    if (setupCamCenterOffset && world2ScreenOffset && calcViewportOffset && rightPlaneClipOffset && 
+    if (setupCamCenterOffset && world2ScreenOffset && calcViewportOffset && rightPlaneClipOffset &&
         leftPlaneClipOffset && layerUpdateOffset && graphicsManagerOffset)
     {
         DWORD oldProtect;
@@ -311,6 +342,15 @@ void PatchViewport()
 
         *(float*)(leftPlaneClipOffset) = *(float*)(leftPlaneClipOffset) * -2;
         *(float*)(rightPlaneClipOffset) = *(float*)(rightPlaneClipOffset) * 2;
+
+        if (topPlaneClipOffset && bottomPlaneClipOffset)
+        {
+            VirtualProtect((LPVOID)(topPlaneClipOffset), 4, PAGE_READWRITE, &oldProtect);
+            VirtualProtect((LPVOID)(bottomPlaneClipOffset), 4, PAGE_READWRITE, &oldProtect);
+
+            *(float*)(topPlaneClipOffset) = *(float*)(topPlaneClipOffset) * 10;
+            *(float*)(bottomPlaneClipOffset) = *(float*)(bottomPlaneClipOffset) * 10;
+        }
 
         GraphicsManager = (uintptr_t)(graphicsManagerOffset + *(int*)(graphicsManagerOffset + 3) + 7);
 
@@ -325,12 +365,12 @@ void PatchViewport()
     spdlog::debug("calcViewportOffset: {:#x}", calcViewportOffset);
     spdlog::debug("rightPlaneClipOffset: {:#x}", rightPlaneClipOffset);
     spdlog::debug("leftPlaneClipOffset: {:#x}", leftPlaneClipOffset);
+    spdlog::debug("topPlaneClipOffset: {:#x}", topPlaneClipOffset);
+    spdlog::debug("bottomPlaneClipOffset: {:#x}", bottomPlaneClipOffset);
     spdlog::debug("layerUpdateOffset: {:#x}", layerUpdateOffset);
     spdlog::debug("graphicsManagerOffset: {:#x}", GraphicsManager);
 }
 
-// pattern matching has gotten out of hand. 
-// possibly better to hardcode offsets based on exe version
 void ApplyPatches()
 {
     uintptr_t movieCurrentOffset = (uintptr_t)Memory::PatternScan(GameModule, "0F B6 05 ?? ?? ?? ?? 3C FF 74 ??");
